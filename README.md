@@ -229,6 +229,13 @@ export {
     redef enum Notice::Type += {
         Threat_Detected
     };
+    
+    # Define structure matching your database fields
+    type ThreatData: record {
+        category: string &optional;
+        threat_level: string &optional;
+        description: string &optional;
+    };
 }
 
 event zeek_init() {
@@ -239,23 +246,15 @@ event connection_new(c: connection) {
     local result = Matchy::query_ip("threats", c$id$orig_h);
     
     if (result != "") {
-        # Parse JSON result (Zeek 5.0+ has built-in JSON support)
-        local data = parse_json(result);
+        # Parse JSON result into typed record
+        local parsed = from_json(result, ThreatData);
         
-        if (data is table) {
-            local threat_level = "";
-            local category = "";
-            
-            if ("threat_level" in data) {
-                threat_level = data["threat_level"];
-            }
-            if ("category" in data) {
-                category = data["category"];
-            }
+        if (parsed$valid) {
+            local threat: ThreatData = parsed$v;
             
             NOTICE([$note=Threat_Detected,
                     $conn=c,
-                    $msg=fmt("Threat: %s (%s)", category, threat_level),
+                    $msg=fmt("Threat: %s (%s)", threat$category, threat$threat_level),
                     $sub=fmt("IP: %s", c$id$orig_h)]);
         }
     }
