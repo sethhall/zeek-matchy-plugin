@@ -1,0 +1,7 @@
+entry,threat_level,category,description
+1.2.3.4,high,malware,Known C2 server
+10.0.0.0/8,low,internal,RFC1918 private network
+192.168.1.0/24,medium,suspicious,Internal scanning activity
+*.evil.com,critical,phishing,Phishing domain pattern
+malware.example.com,high,malware,Malware distribution site
+test.local,low,test,Test domain

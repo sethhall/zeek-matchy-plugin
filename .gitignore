@@ -1,0 +1,53 @@
+# Build directory
+build/
+_build/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+
+# Compiled files
+*.o
+*.so
+*.dylib
+*.a
+*.lo
+*.la
+
+# Generated BIF files
+*.bif.cc
+*.bif.h
+*.bif.init.cc
+*.bif.register.cc
+
+# Zeek plugin artifacts
+lib/
+scripts/.state/
+*.tgz
+
+# Test artifacts
+tests/*.log
+tests/*.mxy
+!tests/test.mxy
+tests/reporter.log
+tests/.tmp/
+
+# Editor and IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Backup files
+*.bak
+*.orig
+
+# Temporary files
+*.tmp
+.*.swp
