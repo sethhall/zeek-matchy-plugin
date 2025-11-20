@@ -48,121 +48,37 @@ Matchy excels at **read-heavy workloads** with infrequent updates (typical threa
 
 ## Installation
 
-**TL;DR:** See [QUICKSTART.md](QUICKSTART.md) for the fastest setup path.
-
 ### Requirements
 
-- **Zeek 5.0 or later**
-- **Matchy library** (see installation below)
-- **CMake 3.15 or later**
+- **Zeek 5.0+**
+- **Rust/Cargo** ([install from rustup.rs](https://rustup.rs/))
+- **Git**
+- **CMake 3.15+**
 - **C++17 compiler**
-- **Rust 1.70+** (for building Matchy)
 
-### Step-by-Step Installation
-
-#### 1. Install Rust (if not already installed)
-
-Matchy is written in Rust, so you'll need the Rust toolchain:
+### Build
 
 ```bash
-# Install Rust using rustup
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-
-# Follow the prompts, then reload your shell
-source $HOME/.cargo/env
-
-# Verify installation
-rustc --version
-cargo --version
-```
-
-Or visit [rustup.rs](https://rustup.rs/) for more installation options.
-
-#### 2. Install Matchy
-
-Matchy is a Rust library that compiles to a C-compatible shared library (`.so`/`.dylib`) and static library (`.a`) for use in C++ programs like this Zeek plugin.
-
-**Choose your installation method:**
-
-| Method | Best For | Pros | Cons |
-|--------|----------|------|------|
-| **cargo-c (system-wide)** | Production | Clean, no env vars, updates via `cargo cinstall` | Requires sudo |
-| **Build from source** | Development | Fast iteration, no sudo | Env vars needed |
-
-**Method 1: System-wide via cargo-c (recommended for production):**
-
-```bash
-# First, install cargo-c if you don't have it
-cargo install cargo-c
-
-# Install Matchy CLI
-cargo install matchy
-
-# Install Matchy C library system-wide (requires sudo)
-sudo cargo cinstall --release --prefix=/usr/local matchy
-
-# Verify CLI installation
-matchy --version
-
-# Verify C library installation
-pkg-config --modversion matchy
-```
-
-This installs:
-- The `matchy` CLI tool to `~/.cargo/bin/matchy`
-- C-compatible libraries to `/usr/local/lib/`
-- C headers to `/usr/local/include/matchy/`
-- pkg-config files to `/usr/local/lib/pkgconfig/`
-
-✅ **After system-wide install, no environment variables needed!**
-
-**Method 2: Build from source (recommended for development):**
-
-```bash
-# Clone and build from GitHub
-git clone https://github.com/sethhall/matchy.git
-cd matchy
-cargo build --release
-
-# Optional: Install CLI tool
-cargo install --path .
-
-# Set MATCHY_ROOT for building the plugin
-export MATCHY_ROOT=/path/to/matchy
-
-# Set library path for runtime (add to ~/.bashrc or ~/.zshrc)
-export DYLD_LIBRARY_PATH=$MATCHY_ROOT/target/release:$DYLD_LIBRARY_PATH  # macOS
-export LD_LIBRARY_PATH=$MATCHY_ROOT/target/release:$LD_LIBRARY_PATH      # Linux
-```
-
-This approach:
-- ✅ No sudo required
-- ✅ Easy to update (just `git pull && cargo build --release`)
-- ✅ Works for development and testing
-- ❌ Requires setting environment variables
-
-#### 3. Build the Zeek Plugin
-
-```bash
-cd /path/to/zeek-matchy
+git clone https://github.com/sethhall/zeek-matchy-plugin.git
+cd zeek-matchy-plugin
 mkdir build && cd build
-
-# Configure - CMake will find Matchy via MATCHY_ROOT or system paths
-MATCHY_ROOT=/path/to/matchy cmake -DCMAKE_MODULE_PATH=$(zeek-config --cmake_dir) ..
-
-# Build
+cmake ..
 make
+```
 
-# Test
-cd ../tests
-ZEEK_PLUGIN_PATH=../build zeek simple-test.zeek
+CMake automatically:
+- Finds Zeek via `zeek-config` (if in PATH)
+- Installs `cargo-c` (if needed)
+- Clones and builds Matchy from GitHub
+- Links everything together
 
-# Install (optional)
-cd ../build
+### Install (optional)
+
+```bash
 sudo make install
 ```
 
-#### 4. Verify Installation
+### Verify Installation
 
 Check that Zeek can see the plugin:
 
@@ -190,7 +106,13 @@ Functions are automatically available in the `Matchy::` namespace:
 
 ### Creating a Matchy Database
 
-First, create a database using the Matchy CLI:
+First, install the Matchy CLI tool:
+
+```bash
+cargo install matchy
+```
+
+Then create a database:
 
 ```bash
 # Create a CSV file with threat indicators
@@ -371,27 +293,20 @@ event zeek_init() {
 
 ## Troubleshooting
 
-For detailed troubleshooting, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
-
-Common issues:
-
-**Build fails with "Matchy library not found":**
-- Make sure you built Matchy with `cargo build --release --features capi`
-- Set `MATCHY_ROOT` environment variable when running cmake
-
 **Plugin not found at runtime:**
-- Set `ZEEK_PLUGIN_PATH` or install with `sudo make install`
-- Verify with `zeek -N Matchy::DB`
-
-**Library loading issues (macOS):**
 ```bash
-export DYLD_LIBRARY_PATH=/path/to/matchy/target/release:$DYLD_LIBRARY_PATH
+export ZEEK_PLUGIN_PATH=/path/to/zeek-matchy-plugin/build
+zeek -N Matchy::DB
 ```
 
-**Database won't load:**
-- Verify with `matchy validate database.mxy`
-- Use absolute paths in Zeek scripts
-- Check file permissions
+**Advanced build options:**
+```bash
+# Use existing Matchy installation
+cmake -DBUILD_MATCHY=OFF -DMATCHY_ROOT=/path/to/matchy ..
+
+# Specify Zeek location manually
+cmake -DCMAKE_MODULE_PATH=/path/to/zeek/cmake ..
+```
 
 ## License
 

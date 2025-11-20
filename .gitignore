@@ -1,6 +1,7 @@
 # Build directory
 build/
 _build/
+target/
 
 # CMake
 CMakeCache.txt
