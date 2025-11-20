@@ -80,39 +80,64 @@ Or visit [rustup.rs](https://rustup.rs/) for more installation options.
 
 #### 2. Install Matchy
 
-Clone and build the Matchy library with C API support:
+Matchy is a Rust library that compiles to a C-compatible shared library (`.so`/`.dylib`) and static library (`.a`) for use in C++ programs like this Zeek plugin.
+
+**Install via Cargo (recommended):**
 
 ```bash
-# Clone Matchy
-git clone https://github.com/sethhall/matchy.git
-cd matchy
+# Install Matchy CLI and library from crates.io
+cargo install matchy --features capi
 
-# Build with C API (capi feature required for Zeek plugin)
-cargo build --release --features capi
-
-# Install the CLI tool (optional but recommended)
-cargo install --path .
-
-# Verify matchy CLI is available
+# Verify installation
 matchy --version
 ```
 
-**Option A: System-wide installation**
+This installs:
+- The `matchy` CLI tool to `~/.cargo/bin/matchy`
+- C-compatible libraries to `~/.cargo/lib/` (or system location if using sudo)
+- C headers to `~/.cargo/include/matchy/`
+
+**Alternative: Build from source:**
 
 ```bash
-# Install C library and headers to standard location
+# Clone and build from GitHub
+git clone https://github.com/sethhall/matchy.git
+cd matchy
+cargo build --release --features capi
+
+# Optional: Install CLI tool
+cargo install --path .
+```
+
+**Where are the libraries?**
+
+After building, you'll find:
+- **Static library**: `target/release/libmatchy.a`
+- **Dynamic library**: `target/release/libmatchy.{so,dylib}` (Linux/macOS)
+- **C headers**: `include/matchy/matchy.h`
+
+**Making libraries available to the plugin:**
+
+**Option A: Use MATCHY_ROOT** (easiest, no system changes)
+
+```bash
+# Point to your Matchy build directory
+export MATCHY_ROOT=/path/to/matchy  # or ~/.cargo if installed via cargo
+```
+
+**Option B: System-wide installation**
+
+```bash
+cd /path/to/matchy
 sudo cp target/release/libmatchy.a /usr/local/lib/
 sudo cp target/release/libmatchy.dylib /usr/local/lib/  # macOS
 sudo cp target/release/libmatchy.so /usr/local/lib/     # Linux
 sudo cp -r include/matchy /usr/local/include/
 ```
 
-**Option B: Use MATCHY_ROOT** (easier, no sudo required)
-
-Just set the `MATCHY_ROOT` environment variable when building the plugin:
-
+**Note for macOS users:** If you get library loading errors at runtime, set:
 ```bash
-export MATCHY_ROOT=/path/to/matchy
+export DYLD_LIBRARY_PATH=/path/to/matchy/target/release:$DYLD_LIBRARY_PATH
 ```
 
 #### 3. Build the Zeek Plugin
@@ -155,10 +180,10 @@ Matchy::DB - Fast IP and pattern matching using Matchy databases (dynamic, versi
 ```
 
 Functions are automatically available in the `Matchy::` namespace:
-- `Matchy::load_database(name, file)`
-- `Matchy::query_ip(name, ip)` 
-- `Matchy::query_string(name, string)`
-- `Matchy::unload_database(name)`
+- `Matchy::load_database(file)` - Returns database handle
+- `Matchy::is_valid(db)` - Check if handle is valid
+- `Matchy::query_ip(db, ip)` - Query by IP address
+- `Matchy::query_string(db, string)` - Query by string/pattern
 
 ## Usage
 
@@ -183,9 +208,13 @@ matchy build threats.csv -o threats.mxy --format csv
 ### Basic Zeek Script
 
 ```zeek
+global threats_db: opaque of Matchy::MatchyDB;
+
 event zeek_init() {
-    # Load the database
-    if (!Matchy::load_database("threats", "/path/to/threats.mxy")) {
+    # Load the database - returns an opaque handle
+    threats_db = Matchy::load_database("/path/to/threats.mxy");
+    
+    if (!Matchy::is_valid(threats_db)) {
         print "Failed to load database!";
         return;
     }
@@ -194,28 +223,25 @@ event zeek_init() {
 }
 
 event connection_new(c: connection) {
-    # Query the originator IP
-    local result = Matchy::query_ip("threats", c$id$orig_h);
+    # Query the originator IP using the database handle
+    local result = Matchy::query_ip(threats_db, c$id$orig_h);
     
     if (result != "") {
         print fmt("Threat detected from %s: %s", c$id$orig_h, result);
-        # Result is JSON - parse with to_json_string() or parseJSON()
+        # Result is JSON - parse with from_json() 
     }
 }
 
 event dns_request(c: connection, msg: dns_msg, query: string, qtype: count, qclass: count) {
     # Query domain name
-    local result = Matchy::query_string("threats", query);
+    local result = Matchy::query_string(threats_db, query);
     
     if (result != "") {
         print fmt("Malicious domain queried: %s - %s", query, result);
     }
 }
 
-event zeek_done() {
-    # Clean up
-    Matchy::unload_database("threats");
-}
+# Database is automatically cleaned up when Zeek terminates
 ```
 
 ### Advanced Example with JSON Parsing
@@ -236,14 +262,20 @@ export {
         threat_level: string &optional;
         description: string &optional;
     };
+    
+    global threats_db: opaque of Matchy::MatchyDB;
 }
 
 event zeek_init() {
-    Matchy::load_database("threats", "/opt/threat-intel/threats.mxy");
+    threats_db = Matchy::load_database("/opt/threat-intel/threats.mxy");
+    
+    if (!Matchy::is_valid(threats_db)) {
+        print "ERROR: Failed to load threat database";
+    }
 }
 
 event connection_new(c: connection) {
-    local result = Matchy::query_ip("threats", c$id$orig_h);
+    local result = Matchy::query_ip(threats_db, c$id$orig_h);
     
     if (result != "") {
         # Parse JSON result into typed record
@@ -263,36 +295,41 @@ event connection_new(c: connection) {
 
 ## API Reference
 
-### `load_database(db_name: string, filename: string): bool`
+### `load_database(filename: string): opaque of MatchyDB`
 
-Load a Matchy database from file.
+Load a Matchy database from file and return an opaque handle.
 
-- **db_name**: Unique identifier for this database instance
 - **filename**: Path to the `.mxy` database file
-- **Returns**: `T` on success, `F` on failure
+- **Returns**: Opaque database handle, or `nullptr` on failure
 
-### `query_ip(db_name: string, ip: addr): string`
+**Note:** The database is automatically closed when the handle goes out of scope or Zeek terminates. No manual cleanup needed.
+
+### `is_valid(db: opaque of MatchyDB): bool`
+
+Check if a database handle is valid and the database is open.
+
+- **db**: Database handle from `load_database()`
+- **Returns**: `T` if valid and open, `F` otherwise
+
+### `query_ip(db: opaque of MatchyDB, ip: addr): string`
 
 Query the database by IP address.
 
-- **db_name**: Name of the loaded database
+- **db**: Database handle from `load_database()`
 - **ip**: IP address to query
 - **Returns**: JSON string with match data, or empty string if no match
 
-### `query_string(db_name: string, query: string): string`
+**Example:** `Matchy::query_ip(db, 1.2.3.4)`
+
+### `query_string(db: opaque of MatchyDB, query: string): string`
 
 Query the database by string (exact match or pattern).
 
-- **db_name**: Name of the loaded database  
-- **query**: String to query (domain, exact string, or pattern)
+- **db**: Database handle from `load_database()`
+- **query**: String to query (domain, exact string, or pattern like `*.evil.com`)
 - **Returns**: JSON string with match data, or empty string if no match
 
-### `unload_database(db_name: string): bool`
-
-Unload a database and free its resources.
-
-- **db_name**: Name of the database to unload
-- **Returns**: `T` on success, `F` if database not found
+**Example:** `Matchy::query_string(db, "malware.example.com")`
 
 ## Testing
 
@@ -309,22 +346,24 @@ Example test script:
 
 ```zeek
 event zeek_init() {
-    if (Matchy::load_database("test", "test.mxy")) {
+    local db = Matchy::load_database("test.mxy");
+    
+    if (Matchy::is_valid(db)) {
         # Test IP query
-        local ip_result = Matchy::query_ip("test", 1.2.3.4);
+        local ip_result = Matchy::query_ip(db, 1.2.3.4);
         if (ip_result != "") {
             print "Match:", ip_result;
             # Output: {"category":"malware","threat_level":"high",...}
         }
         
         # Test pattern query  
-        local pattern_result = Matchy::query_string("test", "sub.evil.com");
+        local pattern_result = Matchy::query_string(db, "sub.evil.com");
         if (pattern_result != "") {
             print "Match:", pattern_result;
             # Output: {"category":"phishing","threat_level":"critical",...}
         }
         
-        Matchy::unload_database("test");
+        # Database automatically cleaned up
     }
 }
 ```

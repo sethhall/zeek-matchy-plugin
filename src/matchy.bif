@@ -3,62 +3,73 @@ module Matchy;
 %%{
 #include <matchy/matchy.h>
 #include <zeek/Val.h>
-#include <map>
-#include <string>
+#include "Plugin.h"
 
 using namespace matchy;
-
-// Global database handle storage
-static std::map<std::string, matchy_t*> databases;
+using namespace zeek::plugin::Matchy;
 %%}
 
-## Load a Matchy database from file. Returns true on success, false on failure.
-## Database is identified by a unique name and can be queried using that name.
+## Load a Matchy database from file. Returns an opaque database handle.
 ##
-## db_name: Unique identifier for this database instance
 ## filename: Path to the .mxy database file
 ##
-## Returns: true if database loaded successfully, false otherwise
-function load_database%(db_name: string, filename: string%): bool
+## Returns: Opaque database handle, or nil on failure
+function load_database%(filename: string%): opaque of MatchyDB
 %{
-    const char* name = db_name->CheckString();
     const char* path = filename->CheckString();
     
-    // Check if database already exists
-    if (databases.find(name) != databases.end()) {
-        zeek::reporter->Warning("Matchy database '%s' already loaded", name);
-        return zeek::val_mgr->False();
-    }
-    
     // Open database
-    matchy_t* db = matchy_open(path);
+    matchy::matchy_t* db = matchy_open(path);
     if (!db) {
         zeek::reporter->Warning("Failed to open Matchy database: %s", path);
+        return nullptr;
+    }
+    
+    // Wrap in opaque type
+    return zeek::make_intrusive<MatchyDB>(db);
+%}
+
+## Check if a database handle is valid.
+##
+## db: Database handle from load_database()
+##
+## Returns: true if handle is valid and database is open, false otherwise
+function is_valid%(db: opaque of MatchyDB%): bool
+%{
+    if (!db) {
         return zeek::val_mgr->False();
     }
     
-    databases[name] = db;
+    auto* db_val = static_cast<MatchyDB*>(db->AsOpaqueVal());
+    if (!db_val || !db_val->GetHandle()) {
+        return zeek::val_mgr->False();
+    }
+    
     return zeek::val_mgr->True();
 %}
 
 ## Query database by string (exact match or pattern). Returns JSON string with results.
 ##
-## db_name: Name of the loaded database
+## db: Database handle from load_database()
 ## query: String to query (domain name, exact string, or pattern)
 ##
 ## Returns: JSON string with match data, or empty string if no match
-function query_string%(db_name: string, query: string%): string
+function query_string%(db: opaque of MatchyDB, query: string%): string
 %{
-    const char* name = db_name->CheckString();
-    const char* query_str = query->CheckString();
-    
-    auto it = databases.find(name);
-    if (it == databases.end()) {
-        zeek::reporter->Warning("Matchy database '%s' not found", name);
+    auto* db_val = static_cast<MatchyDB*>(db->AsOpaqueVal());
+    if (!db_val) {
+        zeek::reporter->Warning("Invalid Matchy database handle");
         return zeek::make_intrusive<zeek::StringVal>("");
     }
     
-    matchy_result_t result = matchy_query(it->second, query_str);
+    matchy::matchy_t* db_handle = db_val->GetHandle();
+    if (!db_handle) {
+        zeek::reporter->Warning("Matchy database handle is closed");
+        return zeek::make_intrusive<zeek::StringVal>("");
+    }
+    
+    const char* query_str = query->CheckString();
+    matchy_result_t result = matchy_query(db_handle, query_str);
     
     if (result.found) {
         char* json = matchy_result_to_json(&result);
@@ -76,24 +87,28 @@ function query_string%(db_name: string, query: string%): string
 
 ## Query database by IP address. Returns JSON string with results.
 ##
-## db_name: Name of the loaded database
+## db: Database handle from load_database()
 ## ip: IP address to query
 ##
 ## Returns: JSON string with match data, or empty string if no match
-function query_ip%(db_name: string, ip: addr%): string
+function query_ip%(db: opaque of MatchyDB, ip: addr%): string
 %{
-    const char* name = db_name->CheckString();
+    auto* db_val = static_cast<MatchyDB*>(db->AsOpaqueVal());
+    if (!db_val) {
+        zeek::reporter->Warning("Invalid Matchy database handle");
+        return zeek::make_intrusive<zeek::StringVal>("");
+    }
     
-    auto it = databases.find(name);
-    if (it == databases.end()) {
-        zeek::reporter->Warning("Matchy database '%s' not found", name);
+    matchy::matchy_t* db_handle = db_val->GetHandle();
+    if (!db_handle) {
+        zeek::reporter->Warning("Matchy database handle is closed");
         return zeek::make_intrusive<zeek::StringVal>("");
     }
     
     // Convert Zeek addr to string
     std::string addr_cpp = ip->AsAddr().AsString();
     
-    matchy_result_t result = matchy_query(it->second, addr_cpp.c_str());
+    matchy_result_t result = matchy_query(db_handle, addr_cpp.c_str());
     
     if (result.found) {
         char* json = matchy_result_to_json(&result);
@@ -107,24 +122,4 @@ function query_ip%(db_name: string, ip: addr%): string
     }
     
     return zeek::make_intrusive<zeek::StringVal>("");
-%}
-
-## Unload a database and free its resources. Returns true on success.
-##
-## db_name: Name of the database to unload
-##
-## Returns: true if database unloaded successfully, false if not found
-function unload_database%(db_name: string%): bool
-%{
-    const char* name = db_name->CheckString();
-    
-    auto it = databases.find(name);
-    if (it == databases.end()) {
-        zeek::reporter->Warning("Matchy database '%s' not found", name);
-        return zeek::val_mgr->False();
-    }
-    
-    matchy_close(it->second);
-    databases.erase(it);
-    return zeek::val_mgr->True();
 %}
