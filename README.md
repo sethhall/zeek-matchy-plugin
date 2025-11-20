@@ -5,8 +5,6 @@
 
 A Zeek plugin for high-performance IP address and string pattern matching using [Matchy](https://github.com/sethhall/matchy) databases.
 
-**Quick start:** See [QUICKSTART.md](QUICKSTART.md) for a 5-minute setup guide.
-
 ---
 
 ## Table of Contents
