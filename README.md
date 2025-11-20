@@ -82,63 +82,64 @@ Or visit [rustup.rs](https://rustup.rs/) for more installation options.
 
 Matchy is a Rust library that compiles to a C-compatible shared library (`.so`/`.dylib`) and static library (`.a`) for use in C++ programs like this Zeek plugin.
 
-**Install via Cargo (recommended):**
+**Choose your installation method:**
+
+| Method | Best For | Pros | Cons |
+|--------|----------|------|------|
+| **cargo-c (system-wide)** | Production | Clean, no env vars, updates via `cargo cinstall` | Requires sudo |
+| **Build from source** | Development | Fast iteration, no sudo | Env vars needed |
+
+**Method 1: System-wide via cargo-c (recommended for production):**
 
 ```bash
-# Install Matchy CLI and library from crates.io
-cargo install matchy --features capi
+# First, install cargo-c if you don't have it
+cargo install cargo-c
 
-# Verify installation
+# Install Matchy CLI
+cargo install matchy
+
+# Install Matchy C library system-wide (requires sudo)
+sudo cargo cinstall --release --prefix=/usr/local matchy
+
+# Verify CLI installation
 matchy --version
+
+# Verify C library installation
+pkg-config --modversion matchy
 ```
 
 This installs:
 - The `matchy` CLI tool to `~/.cargo/bin/matchy`
-- C-compatible libraries to `~/.cargo/lib/` (or system location if using sudo)
-- C headers to `~/.cargo/include/matchy/`
+- C-compatible libraries to `/usr/local/lib/`
+- C headers to `/usr/local/include/matchy/`
+- pkg-config files to `/usr/local/lib/pkgconfig/`
 
-**Alternative: Build from source:**
+✅ **After system-wide install, no environment variables needed!**
+
+**Method 2: Build from source (recommended for development):**
 
 ```bash
 # Clone and build from GitHub
 git clone https://github.com/sethhall/matchy.git
 cd matchy
-cargo build --release --features capi
+cargo build --release
 
 # Optional: Install CLI tool
 cargo install --path .
+
+# Set MATCHY_ROOT for building the plugin
+export MATCHY_ROOT=/path/to/matchy
+
+# Set library path for runtime (add to ~/.bashrc or ~/.zshrc)
+export DYLD_LIBRARY_PATH=$MATCHY_ROOT/target/release:$DYLD_LIBRARY_PATH  # macOS
+export LD_LIBRARY_PATH=$MATCHY_ROOT/target/release:$LD_LIBRARY_PATH      # Linux
 ```
 
-**Where are the libraries?**
-
-After building, you'll find:
-- **Static library**: `target/release/libmatchy.a`
-- **Dynamic library**: `target/release/libmatchy.{so,dylib}` (Linux/macOS)
-- **C headers**: `include/matchy/matchy.h`
-
-**Making libraries available to the plugin:**
-
-**Option A: Use MATCHY_ROOT** (easiest, no system changes)
-
-```bash
-# Point to your Matchy build directory
-export MATCHY_ROOT=/path/to/matchy  # or ~/.cargo if installed via cargo
-```
-
-**Option B: System-wide installation**
-
-```bash
-cd /path/to/matchy
-sudo cp target/release/libmatchy.a /usr/local/lib/
-sudo cp target/release/libmatchy.dylib /usr/local/lib/  # macOS
-sudo cp target/release/libmatchy.so /usr/local/lib/     # Linux
-sudo cp -r include/matchy /usr/local/include/
-```
-
-**Note for macOS users:** If you get library loading errors at runtime, set:
-```bash
-export DYLD_LIBRARY_PATH=/path/to/matchy/target/release:$DYLD_LIBRARY_PATH
-```
+This approach:
+- ✅ No sudo required
+- ✅ Easy to update (just `git pull && cargo build --release`)
+- ✅ Works for development and testing
+- ❌ Requires setting environment variables
 
 #### 3. Build the Zeek Plugin
 
